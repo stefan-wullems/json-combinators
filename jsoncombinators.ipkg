@@ -1,0 +1,7 @@
+package jsoncombinators
+
+depends    = prelude, contrib
+
+sourcedir  = "src"
+
+modules = JSON.Decode
