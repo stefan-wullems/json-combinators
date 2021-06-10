@@ -1,7 +1,7 @@
 package jsoncombinators
 
-depends    = prelude, contrib
+depends = prelude, contrib
 
-sourcedir  = "src"
+sourcedir = "src"
 
 modules = JSON.Decode
