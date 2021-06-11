@@ -209,10 +209,19 @@ vect (MkDecoder decodeElement) len = MkDecoder decodeVect
             (No contra) => Left (expecting ("a VECT with exactly" ++ show len ++ "elements") jsonValue)
     decodeVect jsonValue = Left (expecting "a VECT" jsonValue)
 
-
-
 keyValuePairs : Decoder a -> Decoder (List (String, a))
+keyValuePairs (MkDecoder decode) = MkDecoder decodeKeyValuePairs
+  where
+    decodeKeyValuePairsHelp : List (String, JSON) -> Either Error (List (String, a))
+    decodeKeyValuePairsHelp [] = Right []
+    decodeKeyValuePairsHelp ((field, jsonValue) :: entries) =
+      case decode jsonValue of
+        Left err    => Left (Field field err)
+        Right value => map ((field, value)::) (decodeKeyValuePairsHelp entries)
 
+    decodeKeyValuePairs : JSON -> Either Error (List (String, a))
+    decodeKeyValuePairs (JObject entries) = decodeKeyValuePairsHelp entries
+    decodeKeyValuePairs jsonValue         = Left (expecting "an OBJECT" jsonValue)
 
 
 
