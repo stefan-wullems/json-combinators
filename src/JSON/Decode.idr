@@ -2,6 +2,7 @@ module JSON.Decode
 
 import Data.List
 import Data.Vect
+import Data.Nat
 import Decidable.Equality
 import Language.JSON.Data
 
@@ -54,11 +55,11 @@ fail : String -> Decoder a
 fail errorMsg = MkDecoder (\jsonValue => Left (Failure errorMsg jsonValue))
 
 {-| Decode a JSON number into an Idris `Int`.
-    decodeString int "true"              == Err ...
-    decodeString int "42"                == Ok 42
-    decodeString int "3.14"              == Err ...
-    decodeString int "\"hello\""         == Err ...
-    decodeString int "{ \"hello\": 42 }" == Err ...
+    decodeString int "true"              == Left err
+    decodeString int "42"                == Right 42
+    decodeString int "3.14"              == Left err
+    decodeString int "\"hello\""         == Left err
+    decodeString int "{ \"hello\": 42 }" == Left err
 -}
 public export
 int : Decoder Int
@@ -75,11 +76,11 @@ int = MkDecoder decodeInt
     decodeInt jsonValue = Left (expecting "an INT" jsonValue)
 
 ||| Decode a JSON boolean into an Idris `Bool`.
-|||    decodeString bool "true"              == Ok True
-|||    decodeString bool "42"                == Err ...
-|||    decodeString bool "3.14"              == Err ...
-|||    decodeString bool "\"hello\""         == Err ...
-|||    decodeString bool "{ \"hello\": 42 }" == Err ...
+|||    decodeString bool "true"              == Right True
+|||    decodeString bool "42"                == Left err
+|||    decodeString bool "3.14"              == Left err
+|||    decodeString bool "\"hello\""         == Left err
+|||    decodeString bool "{ \"hello\": 42 }" == Left err
 public export
 bool : Decoder Bool
 bool = MkDecoder decodeBool
@@ -89,11 +90,11 @@ bool = MkDecoder decodeBool
     decodeBool jsonValue        = Left (expecting "a BOOL" jsonValue)
 
 ||| Decode a JSON number into an Idris `Double`.
-|||    decodeString double "true"              == Err ..
-|||    decodeString double "42"                == Ok 42
-|||    decodeString double "3.14"              == Ok 3.14
-|||    decodeString double "\"hello\""         == Err ...
-|||    decodeString double "{ \"hello\": 42 }" == Err ...
+|||    decodeString double "true"              == Left err
+|||    decodeString double "42"                == Right 42
+|||    decodeString double "3.14"              == Right 3.14
+|||    decodeString double "\"hello\""         == Left err
+|||    decodeString double "{ \"hello\": 42 }" == Left err
 public export
 double : Decoder Double
 double = MkDecoder decodeDouble
@@ -103,11 +104,11 @@ double = MkDecoder decodeDouble
     decodeDouble jsonValue       = Left (expecting "a DOUBLE" jsonValue)
 
 ||| Decode a JSON string into an Idris `String`.
-|||    decodeString string "true"              == Err ...
-|||    decodeString string "42"                == Err ...
-|||    decodeString string "3.14"              == Err ...
-|||    decodeString string "\"hello\""         == Ok "hello"
-|||    decodeString string "{ \"hello\": 42 }" == Err ...
+|||    decodeString string "true"              == Left err
+|||    decodeString string "42"                == Left err
+|||    decodeString string "3.14"              == Left err
+|||    decodeString string "\"hello\""         == Right "hello"
+|||    decodeString string "{ \"hello\": 42 }" == Left err
 public export
 string : Decoder String
 string = MkDecoder decodeString
@@ -117,10 +118,10 @@ string = MkDecoder decodeString
     decodeString jsonValue       = Left (expecting "a STRING" jsonValue)
 
 ||| Decode a `null` value into some Idris value.
-|||    decodeString (null False) "null" == Ok False
-|||    decodeString (null 42) "null"    == Ok 42
-|||    decodeString (null 42) "42"      == Err ..
-|||    decodeString (null 42) "false"   == Err ..
+|||    decodeString (null False) "null" == Right False
+|||    decodeString (null 42) "null"    == Right 42
+|||    decodeString (null 42) "42"      == Left err
+|||    decodeString (null 42) "false"   == Left err
 ||| So if you ever see a `null`, this will return whatever value you specified.
 public export
 null : a -> Decoder a
@@ -138,7 +139,7 @@ null value = MkDecoder decodeNull
 |||    badInt : Decoder Int
 |||    badInt =
 |||      oneOf [ int, null 0 ]
-|||    -- decodeString (list badInt) "[1,2,null,4]" == Ok [1,2,0,4]
+|||    -- decodeString (list badInt) "[1,2,null,4]" == Right [1,2,0,4]
 ||| Why would someone generate JSON like this? Questions like this are not good
 ||| for your health. The point is that you can use `oneOf` to handle situations
 ||| like this!
@@ -157,10 +158,10 @@ oneOf decoders = MkDecoder (oneOfHelp decoders)
     oneOfHelp {errors} [] jsonValue = Left (OneOf (reverse errors))
 
 ||| Decode a nullable JSON value into an Idris value.
-|||    decodeString (nullable int) "13"    == Ok (Just 13)
-|||    decodeString (nullable int) "42"    == Ok (Just 42)
-|||    decodeString (nullable int) "null"  == Ok Nothing
-|||    decodeString (nullable int) "true"  == Err ..
+|||    decodeString (nullable int) "13"    == Right (Just 13)
+|||    decodeString (nullable int) "42"    == Right (Just 42)
+|||    decodeString (nullable int) "null"  == Right Nothing
+|||    decodeString (nullable int) "true"  == Left err
 public export
 nullable : Decoder a -> Decoder (Maybe a)
 nullable decoder =
@@ -170,8 +171,8 @@ nullable decoder =
     ]
 
 ||| Decode a JSON array into an Idris `List`.
-|||    decodeString (list int) "[1,2,3]"       == Ok [1,2,3]
-|||    decodeString (list bool) "[true,false]" == Ok [True,False]
+|||    decodeString (list int) "[1,2,3]"       == Right [1,2,3]
+|||    decodeString (list bool) "[true,false]" == Right [True,False]
 public export
 list : Decoder a -> Decoder (List a)
 list (MkDecoder decodeElement) = MkDecoder decodeList
@@ -187,12 +188,12 @@ list (MkDecoder decodeElement) = MkDecoder decodeList
     decodeList (JArray xs) = decodeListHelp xs
     decodeList jsonValue = Left (expecting "a LIST" jsonValue)
 
-||| Decode a JSON array into an Idris `List`.
-|||    decodeString (list int) "[1,2,3]"       == Ok [1,2,3]
-|||    decodeString (list bool) "[true,false]" == Ok [True,False]
+||| Decode a JSON array into a dependent pair of an idris "VECT" dependent on its length.
+|||    decodeString (vect int) "[1,2,3]"       == Right (3 ** [1, 2, 3])
+|||    decodeString (vect bool) "[true,false]" == Right (2 ** [True,False])
 public export
-vect : Decoder a -> (len: Nat) -> Decoder (Vect len a)
-vect (MkDecoder decodeElement) len = MkDecoder decodeVect
+vect : Decoder a -> Decoder (len ** Vect len a)
+vect (MkDecoder decodeElement) = MkDecoder decodeVect
   where
     decodeVectHelp : {default 0 idx: Nat} -> List JSON -> Either Error (len' ** Vect len' a)
     decodeVectHelp [] = Right (0 ** [])
@@ -201,14 +202,50 @@ vect (MkDecoder decodeElement) len = MkDecoder decodeVect
         Left err    => Left (Index idx err)
         Right value => map (\(len' ** xs) => (S len' ** value::xs)) (decodeVectHelp {idx = idx + 1} xs)
 
-    decodeVect : JSON -> Either Error (Vect len a)
-    decodeVect jsonValue@(JArray xs) = 
-      do (len' ** vect) <- decodeVectHelp xs
-         case decEq len' len of
-            (Yes prf)   => rewrite sym prf in Right vect
-            (No contra) => Left (expecting ("a VECT with exactly" ++ show len ++ "elements") jsonValue)
+    decodeVect : JSON -> Either Error (len ** Vect len a)
+    decodeVect jsonValue@(JArray xs) = decodeVectHelp xs
     decodeVect jsonValue = Left (expecting "a VECT" jsonValue)
 
+||| Decode a JSON array into an Idris `Vect` with an exact length.
+|||    decodeString (vectExact 3 int)  "[1,2,3]"       == Right [1,2,3]
+|||    decodeString (vectExact 2 bool) "[true,false]"  == Right [True,False]
+|||    decodeString (vectExact 5 bool) "[true,false]"  == Left err
+public export
+vectExact : (len: Nat) -> Decoder a -> Decoder (Vect len a)
+vectExact len decoder = 
+  do (len' ** xs) <- vect decoder
+     case decEq len' len of
+        (Yes Refl)  => pure xs
+        (No contra) => fail ("Expecting a VECT with exactly" ++ show len ++ "elements") 
+
+||| Decode a JSON array into a dependent pair of an Idris `Vect` dependent on
+||| the amount of elements it has additionally to the minimum amount.
+|||    decodeString (vectAtLeast 3 int)  "[1,2,3]"       == Right (0 ** [1,2,3])
+|||    decodeString (vectAtLeast 1 int)  "[1,2,3]"       == Right (2 ** [1,2,3])
+|||    decodeString (vectAtLeast 1 bool) "[true,false]"  == Right (1 ** [True,False])
+|||    decodeString (vectAtLeast 3 bool) "[true,false]"  == Left err
+public export
+vectAtLeast : (len: Nat) -> Decoder a -> Decoder (rest ** Vect (len + rest) a)
+vectAtLeast len decoder = 
+  do (len' ** xs) <- vect decoder
+     case isLTE len len' of
+       (Yes prfLte) => 
+          let (rest ** Refl) = diff len len' prfLte
+          in pure (rest ** xs)
+       (No contra) => fail ("Expecting a VECT with at least" ++ show len ++ "elements")
+  where
+    diff : (x, y: Nat) -> (prf: LTE x y) -> (z ** x + z = y)
+    diff 0 0 prf = (0 ** Refl)
+    diff 0 y prf = (y ** Refl)
+    diff (S k) 0 prf impossible
+    diff (S k) (S j) prf = 
+      let (rest ** prf) = diff k j (fromLteSucc prf)
+      in (rest ** cong S prf)
+    
+||| Decode a JSON object into an Idris `List` of pairs.
+|||    decodeString (keyValuePairs int) "{ \"alice\": 42, \"bob\": 99 }"
+|||      == Right [("alice", 42), ("bob", 99)]
+public export
 keyValuePairs : Decoder a -> Decoder (List (String, a))
 keyValuePairs (MkDecoder decode) = MkDecoder decodeKeyValuePairs
   where
@@ -222,15 +259,3 @@ keyValuePairs (MkDecoder decode) = MkDecoder decodeKeyValuePairs
     decodeKeyValuePairs : JSON -> Either Error (List (String, a))
     decodeKeyValuePairs (JObject entries) = decodeKeyValuePairsHelp entries
     decodeKeyValuePairs jsonValue         = Left (expecting "an OBJECT" jsonValue)
-
-
-
-
--- ||| Decode a JSON string into an Idris `String`.
--- |||    decodeString string "true"              == Err ...
--- |||    decodeString string "42"                == Err ...
--- |||    decodeString string "3.14"              == Err ...
--- |||    decodeString string "\"hello\""         == Ok "hello"
--- |||    decodeString string "{ \"hello\": 42 }" == Err ...
--- string : ()
--- string = ()
