@@ -165,6 +165,10 @@ null value = MkDecoder decodeNull
     decodeNull JNull     = Right value
     decodeNull jsonValue = Left (expecting "null" jsonValue)
 
+--------------------------------------------------------------------------------
+-- Dealing with optionality
+--------------------------------------------------------------------------------
+
 ||| Decode a nullable JSON value into an Idris value.
 ||| 
 |||    decodeString (nullable int) "13"    == Right (Just 13)
@@ -177,6 +181,29 @@ nullable decoder =
   oneOf
     [ null Nothing
     , map Just decoder 
+    ]
+
+||| Helpful for dealing with optional fields. Here are a few slightly different
+||| examples:
+||| 
+|||    json = """{ "name": "tom", "age": 42 }"""
+|||    decodeString (maybe (field "age"    int  )) json == Right (Just 42)
+|||    decodeString (maybe (field "name"   int  )) json == Right Nothing
+|||    decodeString (maybe (field "height" float)) json == Right Nothing
+|||    decodeString (field "age"    (maybe int  )) json == Right (Just 42)
+|||    decodeString (field "name"   (maybe int  )) json == Right Nothing
+|||    decodeString (field "height" (maybe float)) json == Left err
+|||
+||| Notice the last example! It is saying we *must* have a field named `height` and
+||| the content *may* be a float. There is no `height` field, so the decoder fails.
+|||
+||| Point is, `maybe` will make exactly what it contains conditional. For optional
+||| fields, this means you probably want it *outside* a use of `field` or `at`.
+maybe : Decoder a -> Decoder (Maybe a)
+maybe decoder =
+  oneOf
+    [ map Just decoder
+    , pure Nothing
     ]
 
 --------------------------------------------------------------------------------
