@@ -42,10 +42,6 @@ Monad Decoder where
 -- @TODO replace all occurences of 'andThen' with '>>='
 -- @TODO make sure mapN is not referenced anymore
 -- @TODO make sure Elm is not referenced anymore
--- @TODO separate out the primitives from the rest so that we cannot write decoders
---       in terms of MkDecoder anymore
-
--- Primitive Decoders
 
 ||| Ignore the JSON and make the decoder fail. This is handy when used with
 ||| `oneOf` or `>>=` where you want to give a custom error message in some
@@ -53,6 +49,34 @@ Monad Decoder where
 public export
 fail : String -> Decoder a
 fail errorMsg = MkDecoder (\jsonValue => Left (Failure errorMsg jsonValue))
+
+||| Try a bunch of different decoders. This can be useful if the JSON may come
+||| in a couple different formats. For example, say you want to read an array of
+||| numbers, but some of them are `null`.
+|||    badInt : Decoder Int
+|||    badInt =
+|||      oneOf [ int, null 0 ]
+|||    -- decodeString (list badInt) "[1,2,null,4]" == Right [1,2,0,4]
+||| Why would someone generate JSON like this? Questions like this are not good
+||| for your health. The point is that you can use `oneOf` to handle situations
+||| like this!
+||| You could also use `oneOf` to help version your data. Try the latest format,
+||| then a few older ones that you still support. You could use `>>=` to be
+||| even more particular if you wanted.
+public export
+oneOf : List (Decoder a) -> Decoder a
+oneOf decoders = MkDecoder (oneOfHelp decoders)
+  where
+    oneOfHelp : {default [] errors : List Error} -> List (Decoder a) -> JSON -> Either Error a
+    oneOfHelp {errors} ((MkDecoder decode) :: decoders) jsonValue = 
+      case decode jsonValue of
+        Right value => Right value
+        Left error  => oneOfHelp {errors=error::errors} decoders jsonValue
+    oneOfHelp {errors} [] jsonValue = Left (OneOf (reverse errors))
+
+--------------------------------------------------------------------------------
+-- JSON primitives
+--------------------------------------------------------------------------------
 
 {-| Decode a JSON number into an Idris `Int`.
     decodeString int "true"              == Left err
@@ -131,32 +155,6 @@ null value = MkDecoder decodeNull
     decodeNull JNull     = Right value
     decodeNull jsonValue = Left (expecting "null" jsonValue)
 
--- DATA STRUCTURES
-
-||| Try a bunch of different decoders. This can be useful if the JSON may come
-||| in a couple different formats. For example, say you want to read an array of
-||| numbers, but some of them are `null`.
-|||    badInt : Decoder Int
-|||    badInt =
-|||      oneOf [ int, null 0 ]
-|||    -- decodeString (list badInt) "[1,2,null,4]" == Right [1,2,0,4]
-||| Why would someone generate JSON like this? Questions like this are not good
-||| for your health. The point is that you can use `oneOf` to handle situations
-||| like this!
-||| You could also use `oneOf` to help version your data. Try the latest format,
-||| then a few older ones that you still support. You could use `>>=` to be
-||| even more particular if you wanted.
-public export
-oneOf : List (Decoder a) -> Decoder a
-oneOf decoders = MkDecoder (oneOfHelp decoders)
-  where
-    oneOfHelp : {default [] errors : List Error} -> List (Decoder a) -> JSON -> Either Error a
-    oneOfHelp {errors} ((MkDecoder decode) :: decoders) jsonValue = 
-      case decode jsonValue of
-        Right value => Right value
-        Left error  => oneOfHelp {errors=error::errors} decoders jsonValue
-    oneOfHelp {errors} [] jsonValue = Left (OneOf (reverse errors))
-
 ||| Decode a nullable JSON value into an Idris value.
 |||    decodeString (nullable int) "13"    == Right (Just 13)
 |||    decodeString (nullable int) "42"    == Right (Just 42)
@@ -169,6 +167,10 @@ nullable decoder =
     [ null Nothing
     , map Just decoder 
     ]
+
+--------------------------------------------------------------------------------
+-- JSON arrays
+--------------------------------------------------------------------------------
 
 ||| Decode a JSON array into an Idris `List`.
 |||    decodeString (list int) "[1,2,3]"       == Right [1,2,3]
@@ -241,7 +243,11 @@ vectAtLeast len decoder =
     diff (S k) (S j) prf = 
       let (rest ** prf) = diff k j (fromLteSucc prf)
       in (rest ** cong S prf)
-    
+
+--------------------------------------------------------------------------------
+-- JSON objects
+--------------------------------------------------------------------------------
+
 ||| Decode a JSON object into an Idris `List` of pairs.
 |||    decodeString (keyValuePairs int) "{ \"alice\": 42, \"bob\": 99 }"
 |||      == Right [("alice", 42), ("bob", 99)]
