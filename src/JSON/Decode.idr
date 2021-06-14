@@ -248,6 +248,10 @@ vectAtLeast len decoder =
 -- JSON objects
 --------------------------------------------------------------------------------
 
+expectObject : JSON -> Either Error (List (String, JSON))
+expectObject (JObject entries) = Right entries
+expectObject jsonValue         = Left (expecting "an OBJECT" jsonValue)
+
 ||| Decode a JSON object into an Idris `List` of pairs.
 |||    decodeString (keyValuePairs int) "{ \"alice\": 42, \"bob\": 99 }"
 |||      == Right [("alice", 42), ("bob", 99)]
@@ -257,11 +261,51 @@ keyValuePairs (MkDecoder decode) = MkDecoder decodeKeyValuePairs
   where
     decodeKeyValuePairsHelp : List (String, JSON) -> Either Error (List (String, a))
     decodeKeyValuePairsHelp [] = Right []
-    decodeKeyValuePairsHelp ((field, jsonValue) :: entries) =
+    decodeKeyValuePairsHelp ((fieldName, jsonValue) :: entries) =
       case decode jsonValue of
-        Left err    => Left (Field field err)
-        Right value => map ((field, value)::) (decodeKeyValuePairsHelp entries)
+        -- Enrich error with information on which field we attempted to decode
+        Left err => 
+          Left (Field fieldName err)
+
+        Right value => 
+          map ((fieldName, value)::) (decodeKeyValuePairsHelp entries)
 
     decodeKeyValuePairs : JSON -> Either Error (List (String, a))
-    decodeKeyValuePairs (JObject entries) = decodeKeyValuePairsHelp entries
-    decodeKeyValuePairs jsonValue         = Left (expecting "an OBJECT" jsonValue)
+    decodeKeyValuePairs jsonValue = 
+      expectObject jsonValue 
+        >>= decodeKeyValuePairsHelp
+
+||| Decode a JSON object, requiring a particular field.
+|||    decodeString (field "x" int) "{ \"x\": 3 }"            == Right 3
+|||    decodeString (field "x" int) "{ \"x\": 3, \"y\": 4 }"  == Right 3
+|||    decodeString (field "x" int) "{ \"x\": true }"         == Left err
+|||    decodeString (field "x" int) "{ \"y\": 4 }"            == Left err
+|||    decodeString (field "name" string) "{ \"name\": \"tom\" }" == Right "tom"
+||| The object *can* have other fields. Lots of them! The only thing this decoder
+||| cares about is if `x` is present and that the value there is an `Int`.
+public export
+field : String -> Decoder a -> Decoder a
+field fieldName (MkDecoder decode) = MkDecoder decodeField
+  where
+    decodeFieldHelp : (String, JSON) -> Either Error a
+    decodeFieldHelp (fieldName, jsonValue) =
+      case decode jsonValue of
+        -- Enrich error with information on which field we attempted to decode
+        Left err => 
+          Left (Field fieldName err)
+
+        Right value => 
+          Right value
+
+    decodeField : JSON -> Either Error a
+    decodeField jsonValue =
+      do entries <- expectObject jsonValue
+         case find ((fieldName ==) . fst) entries of
+            Just entry => 
+              decodeFieldHelp entry
+
+            Nothing => 
+              Left (expecting ("an OBJECT with a field named `" ++ fieldName ++ "`") jsonValue)
+           
+              
+       
