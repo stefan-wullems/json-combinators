@@ -1,10 +1,10 @@
-module JSON.Decode
+module JSON.Decode -- @TODO remove Src prefix
 
 import Data.List
 import Data.Vect
 import Data.Nat
 import Decidable.Equality
-import Language.JSON.Data
+import Language.JSON
 
 %default total
 
@@ -14,6 +14,7 @@ data Error
   | Index Nat Error
   | OneOf (List Error)
   | Failure String JSON
+  | InvalidJSON String
 
 expecting : String -> JSON -> Error
 
@@ -40,10 +41,30 @@ Monad Decoder where
         decode jsonValue
     )
 
--- @TODO replace all occurences of 'andThen' with '>>='
--- @TODO make sure mapN is not referenced anymore
--- @TODO make sure Elm is not referenced anymore
 -- @TODO make sure each decoder enriches its errors with extra info if possible
+
+--------------------------------------------------------------------------------
+-- Running a decoder
+--------------------------------------------------------------------------------
+
+||| Parse the given string into a JSON value and then run the `Decoder` on it.
+||| This will fail if the string is not well-formed JSON or if the `Decoder`
+||| fails for some reason.
+|||
+||| ```idris example
+||| > decodeString int "4"     
+||| Right 4
+||| > decodeString int "1 + 2"
+||| Left err
+||| ```
+decodeString : Decoder a -> String -> Either Error a
+decodeString (MkDecoder decode) jsonString =
+  case parse jsonString of
+    Just jsonValue =>
+      decode jsonValue
+
+    Nothing =>
+      Left (InvalidJSON jsonString)
 
 ||| Ignore the JSON and make the decoder fail. This is handy when used with
 ||| `oneOf` or `>>=` where you want to give a custom error message in some
@@ -56,15 +77,18 @@ fail errorMsg = MkDecoder (\jsonValue => Left (Failure errorMsg jsonValue))
 ||| in a couple different formats. For example, say you want to read an array of
 ||| numbers, but some of them are `null`.
 |||
-|||    badInt : Decoder Int
-|||    badInt =
-|||      oneOf [ int, null 0 ]
+||| ```idris example
+||| > :let badInt : Decoder Int
+||| > :let badInt = oneOf [ int, null 0 ]
 |||
-|||    decodeString (list badInt) "[1,2,null,4]" == Right [1,2,0,4]
+||| > decodeString (list badInt) "[1,2,null,4]"
+||| Right [1,2,0,4]
+||| ```
 |||
 ||| Why would someone generate JSON like this? Questions like this are not good
 ||| for your health. The point is that you can use `oneOf` to handle situations
 ||| like this!
+|||
 ||| You could also use `oneOf` to help version your data. Try the latest format,
 ||| then a few older ones that you still support. You could use `>>=` to be
 ||| even more particular if you wanted.
@@ -85,11 +109,18 @@ oneOf decoders = MkDecoder (oneOfHelp decoders)
 
 ||| Decode a JSON number into an Idris `Int`.
 |||
-|||    decodeString int "true"              == Left err
-|||    decodeString int "42"                == Right 42
-|||    decodeString int "3.14"              == Left err
-|||    decodeString int "\"hello\""         == Left err
-|||    decodeString int "{ \"hello\": 42 }" == Left err
+||| ``` idris example
+||| > decodeString int "42"                
+||| Right 42
+||| ```
+||| ```idris example
+||| > decodeString int "3.14"              
+||| Left err
+||| ```
+||| ```idris example
+||| > decodeString int "\"hello\""         
+||| Left err
+||| ```
 public export
 int : Decoder Int
 int = MkDecoder decodeInt
@@ -106,11 +137,18 @@ int = MkDecoder decodeInt
 
 ||| Decode a JSON boolean into an Idris `Bool`.
 |||
-|||    decodeString bool "true"              == Right True
-|||    decodeString bool "42"                == Left err
-|||    decodeString bool "3.14"              == Left err
-|||    decodeString bool "\"hello\""         == Left err
-|||    decodeString bool "{ \"hello\": 42 }" == Left err
+||| ```idris example
+||| > decodeString bool "true"              
+||| Right True
+||| > decodeString bool "42"                 
+||| Left err
+||| > decodeString bool "3.14"              
+||| Left err
+||| > decodeString bool "\"hello\""         
+||| Left err
+||| > decodeString bool "{ \"hello\": 42 }" 
+||| Left err
+||| ```
 public export
 bool : Decoder Bool
 bool = MkDecoder decodeBool
@@ -121,11 +159,13 @@ bool = MkDecoder decodeBool
 
 ||| Decode a JSON number into an Idris `Double`.
 |||
-|||    decodeString double "true"              == Left err
-|||    decodeString double "42"                == Right 42
-|||    decodeString double "3.14"              == Right 3.14
-|||    decodeString double "\"hello\""         == Left err
-|||    decodeString double "{ \"hello\": 42 }" == Left err
+||| ```idris example
+||| decodeString double "true"              = Left err
+||| decodeString double "42"                = Right 42
+||| decodeString double "3.14"              = Right 3.14
+||| decodeString double "\"hello\""         = Left err
+||| decodeString double "{ \"hello\": 42 }" = Left err
+||| ```
 public export
 double : Decoder Double
 double = MkDecoder decodeDouble
@@ -438,4 +478,3 @@ atShorthandForNestedField : {decoder: Decoder a} ->
                             {fieldNames: List String} ->
                             at (fieldName::fieldNames) decoder = field fieldName (at fieldNames decoder)
 atShorthandForNestedField = Refl
-
