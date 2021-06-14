@@ -35,8 +35,9 @@ public export
 Monad Decoder where
   join (MkDecoder decodeDecoder) = 
     MkDecoder (\jsonValue => 
-      do (MkDecoder decode) <- (decodeDecoder jsonValue)
-         decode jsonValue
+      do 
+        (MkDecoder decode) <- (decodeDecoder jsonValue)
+        decode jsonValue
     )
 
 -- @TODO replace all occurences of 'andThen' with '>>='
@@ -197,9 +198,10 @@ fallibleIndexedFoldl func init input = fallibleIndexedFoldlHelp input init
     fallibleIndexedFoldlHelp : {default 0 idx: Nat} -> (input: List a) -> (acc: b) -> Either err b
     fallibleIndexedFoldlHelp [] acc = Right acc
     fallibleIndexedFoldlHelp {idx = idx} (x :: xs) acc = 
-      do acc' <- func (x, idx) acc
-         res <- fallibleIndexedFoldlHelp {idx=idx+1} xs acc'
-         pure res
+      do 
+        acc' <- func (x, idx) acc
+        res <- fallibleIndexedFoldlHelp {idx=idx+1} xs acc'
+        pure res
 
 ||| A variation of indexedMap that can fail and will short circuit to save resources if it does.
 ||| Failure is triggered by returning a (Left ..) from func.
@@ -207,10 +209,8 @@ fallibleIndexedMap : (func: (a, Nat) -> Either err b) -> (input: List a) -> Eith
 fallibleIndexedMap func input = fallibleIndexedFoldl fallibleIndexedMapHelp [] input
   where
     fallibleIndexedMapHelp : (a, Nat) -> List b -> Either err (List b)
-    fallibleIndexedMapHelp element xs = 
-      do res <- func element
-         pure (xs ++ [res])
-
+    fallibleIndexedMapHelp element xs = map (snoc xs) (func element)
+         
 ||| Decode a JSON array into an Idris `List`.
 ||| 
 |||    decodeString (list int) "[1,2,3]"       == Right [1,2,3]
@@ -221,17 +221,44 @@ list (MkDecoder decodeElement) = MkDecoder decodeList
   where
     decodeListHelp : (JSON, Nat) -> Either Error a
     decodeListHelp (jsonValue, idx) = 
-      case decodeElement jsonValue of
-        Left err => 
-          Left (Index idx err)
-
-        Right value => 
-          Right value
-
+      bimap
+        {- Decoding failed    -} (\err => Index idx err)
+        {- Decoding succeeded -} id 
+        (decodeElement jsonValue)
+    
     decodeList : JSON -> Either Error (List a)
     decodeList jsonValue = 
       expectArray jsonValue 
         >>= fallibleIndexedMap decodeListHelp
+
+||| Decode a JSON array, requiring a particular index.
+|||
+|||    json = """[ "alice", "bob", "chuck" ]"""
+|||
+|||    decodeString (index 0 string) json  == Right "alice"
+|||    decodeString (index 1 string) json  == Right "bob"
+|||    decodeString (index 2 string) json  == Right "chuck"
+|||    decodeString (index 3 string) json  == Left err
+public export
+index : (idx: Nat) -> Decoder a -> Decoder a
+index idx (MkDecoder decode) = MkDecoder decodeIndex
+  where
+    decodeIndex : JSON -> Either Error a
+    decodeIndex jsonValue =
+      do xs <- expectArray jsonValue
+         case inBounds idx xs of
+            Yes prf => 
+              bimap
+               {- Decoding failed    -} (\err => Index idx err)
+               {- Decoding succeeded -} id
+               (decode (index idx xs))
+
+            No contra => 
+              Left (
+                expecting 
+                  ("a LONGER array. Need index " ++ show idx ++ " but only see " ++ show (length xs) ++ " entries") 
+                  jsonValue
+              )
 
 ||| Decode a JSON array into a dependent pair of an idris "VECT" dependent on its length.
 ||| 
@@ -242,13 +269,11 @@ vect : Decoder a -> Decoder (len ** Vect len a)
 vect (MkDecoder decodeElement) = MkDecoder decodeVect
   where
     decodeVectHelp : (JSON, Nat) -> (len ** Vect len a) -> Either Error (len' ** Vect len' a)
-    decodeVectHelp (jsonValue, idx) (len ** xs) = 
-      case decodeElement jsonValue of
-        Left err => 
-          Left (Index idx err)
-
-        Right x => 
-          Right (S len ** x :: xs)
+    decodeVectHelp (jsonValue, idx) (len ** xs) =
+      bimap
+        {- Decoding failed    -} (\err => Index idx err)
+        {- Decoding succeeded -} (\x   => (S len ** x :: xs))
+        (decodeElement jsonValue)
 
     decodeVect : JSON -> Either Error (len ** Vect len a)
     decodeVect jsonValue = 
@@ -263,10 +288,14 @@ vect (MkDecoder decodeElement) = MkDecoder decodeVect
 public export
 vectExact : (len: Nat) -> Decoder a -> Decoder (Vect len a)
 vectExact len decoder = 
-  do (len' ** xs) <- vect decoder
-     case decEq len' len of
-        (Yes Refl)  => pure xs
-        (No contra) => fail ("Expecting an ARRAY with exactly" ++ show len ++ "elements") 
+  do 
+    (len' ** xs) <- vect decoder
+    case decEq len' len of
+      Yes Refl => 
+        pure xs
+
+      No contra => 
+        fail ("Expecting an ARRAY with exactly" ++ show len ++ "elements") 
 
 ||| Decode a JSON array into a dependent pair of an Idris `Vect` dependent on
 ||| the amount of elements it has additionally to the minimum amount.
@@ -278,12 +307,15 @@ vectExact len decoder =
 public export
 vectAtLeast : (len: Nat) -> Decoder a -> Decoder (rest ** Vect (len + rest) a)
 vectAtLeast len decoder = 
-  do (len' ** xs) <- vect decoder
-     case isLTE len len' of
-       (Yes prfLte) => 
-          let (rest ** Refl) = diff len len' prfLte
-          in pure (rest ** xs)
-       (No contra) => fail ("Expecting an ARRAY with at least" ++ show len ++ "elements")
+  do 
+    (len' ** xs) <- vect decoder
+    case isLTE len len' of
+      Yes prfLte => 
+        let (rest ** Refl) = diff len len' prfLte
+        in pure (rest ** xs)
+
+      No contra => 
+        fail ("Expecting an ARRAY with at least" ++ show len ++ "elements")
   where
     diff : (x, y: Nat) -> (prf: LTE x y) -> (z ** x + z = y)
     diff 0 0 prf = (0 ** Refl)
@@ -341,13 +373,10 @@ field fieldName (MkDecoder decode) = MkDecoder decodeField
   where
     decodeFieldHelp : (String, JSON) -> Either Error a
     decodeFieldHelp (fieldName, jsonValue) =
-      case decode jsonValue of
-        -- Enrich error with information on which field we attempted to decode
-        Left err => 
-          Left (Field fieldName err)
-
-        Right value => 
-          Right value
+       bimap
+        {- Decoding failed    -} (\err => Field fieldName err)
+        {- Decoding succeeded -} id
+        (decode jsonValue)
 
     decodeField : JSON -> Either Error a
     decodeField jsonValue =
@@ -363,17 +392,20 @@ field fieldName (MkDecoder decode) = MkDecoder decodeField
 |||
 |||    json = """{ "person": { "name": "tom", "age": 42 } }"""
 |||
-|||    decodeString (at ["person", "name"] string) json  == Ok "tom"
-|||    decodeString (at ["person", "age" ] int   ) json  == Ok 42
+|||    decodeString (at ["person", "name"] string) json  == Right "tom"
+|||    decodeString (at ["person", "age" ] int   ) json  == Right 42
+public export
 at : (path: List String) -> Decoder a -> Decoder a
 at path decoder =
   foldr field decoder path
 
 ||| If no path is given the decoder is applied on the spot.
+public export
 atEmptyListSimplyReturnsDecoder : (decoder: Decoder a) -> at [] decoder = decoder
 atEmptyListSimplyReturnsDecoder decoder = Refl
 
 ||| At can be seen as a bunch of nested calls to `field`.
+public export
 atShorthandForNestedField : {decoder: Decoder a} -> 
                             {fieldName: String} ->
                             {fieldNames: List String} ->
