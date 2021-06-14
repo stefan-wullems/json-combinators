@@ -365,7 +365,18 @@ field fieldName (MkDecoder decode) = MkDecoder decodeField
 |||
 |||    decodeString (at ["person", "name"] string) json  == Ok "tom"
 |||    decodeString (at ["person", "age" ] int   ) json  == Ok 42
-||| This is really just a shorthand for saying things like:
-|||
-|||    field "person" (field "name" string) == at ["person","name"] string
-at : List String -> Decoder a -> Decoder a
+at : (path: List String) -> Decoder a -> Decoder a
+at path decoder =
+  foldr field decoder path
+
+||| If no path is given the decoder is applied on the spot.
+atEmptyListSimplyReturnsDecoder : (decoder: Decoder a) -> at [] decoder = decoder
+atEmptyListSimplyReturnsDecoder decoder = Refl
+
+||| At can be seen as a bunch of nested calls to `field`.
+atShorthandForNestedField : {decoder: Decoder a} -> 
+                            {fieldName: String} ->
+                            {fieldNames: List String} ->
+                            at (fieldName::fieldNames) decoder = field fieldName (at fieldNames decoder)
+atShorthandForNestedField = Refl
+
