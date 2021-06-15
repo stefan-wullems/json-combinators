@@ -1,4 +1,4 @@
-module JSON.Decode -- @TODO remove Src prefix
+module JSON.Decode
 
 import Data.List
 import Data.Vect
@@ -54,6 +54,8 @@ Monad Decoder where
 ||| ```idris example
 ||| > decodeString int "4"     
 ||| Right 4
+||| ```
+||| ```idris example
 ||| > decodeString int "1 + 2"
 ||| Left err
 ||| ```
@@ -140,13 +142,9 @@ int = MkDecoder decodeInt
 ||| ```idris example
 ||| > decodeString bool "true"              
 ||| Right True
+||| ```
+||| ```idris example
 ||| > decodeString bool "42"                 
-||| Left err
-||| > decodeString bool "3.14"              
-||| Left err
-||| > decodeString bool "\"hello\""         
-||| Left err
-||| > decodeString bool "{ \"hello\": 42 }" 
 ||| Left err
 ||| ```
 public export
@@ -160,11 +158,16 @@ bool = MkDecoder decodeBool
 ||| Decode a JSON number into an Idris `Double`.
 |||
 ||| ```idris example
-||| decodeString double "true"              = Left err
-||| decodeString double "42"                = Right 42
-||| decodeString double "3.14"              = Right 3.14
-||| decodeString double "\"hello\""         = Left err
-||| decodeString double "{ \"hello\": 42 }" = Left err
+||| > decodeString double "true"              
+||| Left err
+||| ```
+||| ```idris example
+||| > decodeString double "42"
+||| Right 42.0
+||| ```
+||| ```idris example
+||| > decodeString double "3.14"
+||| Right 3.14
 ||| ```
 public export
 double : Decoder Double
@@ -176,11 +179,18 @@ double = MkDecoder decodeDouble
 
 ||| Decode a JSON string into an Idris `String`.
 |||
-|||    decodeString string "true"              == Left err
-|||    decodeString string "42"                == Left err
-|||    decodeString string "3.14"              == Left err
-|||    decodeString string "\"hello\""         == Right "hello"
-|||    decodeString string "{ \"hello\": 42 }" == Left err
+||| ```idris example
+||| > decodeString string "true"
+||| Left err
+||| ```
+||| ```idris example
+||| > decodeString string "42"
+||| Left err
+||| ```
+||| ```idris example
+||| > decodeString string "\"hello\""
+||| Right "hello"
+||| ```
 public export
 string : Decoder String
 string = MkDecoder decodeString
@@ -191,10 +201,14 @@ string = MkDecoder decodeString
 
 ||| Decode a `null` value into some Idris value.
 |||
-|||    decodeString (null False) "null" == Right False
-|||    decodeString (null 42) "null"    == Right 42
-|||    decodeString (null 42) "42"      == Left err
-|||    decodeString (null 42) "false"   == Left err
+||| ```idris example
+||| > decodeString (null 42) "null"
+||| Right 42
+||| ```
+||| ```idris example
+||| > decodeString (null 42) "42"
+||| Left err
+||| ```
 ||| 
 ||| So if you ever see a `null`, this will return whatever value you specified.
 public export
@@ -211,10 +225,18 @@ null value = MkDecoder decodeNull
 
 ||| Decode a nullable JSON value into an Idris value.
 ||| 
-|||    decodeString (nullable int) "13"    == Right (Just 13)
-|||    decodeString (nullable int) "42"    == Right (Just 42)
-|||    decodeString (nullable int) "null"  == Right Nothing
-|||    decodeString (nullable int) "true"  == Left err
+||| ```idris example
+||| > decodeString (nullable int) "42"
+||| Right (Just 42)
+||| ```
+||| ```idris example
+||| > decodeString (nullable int) "null"
+||| Right Nothing
+||| ```
+||| ```idris example
+||| > decodeString (nullable int) "true" 
+||| Left err
+||| ```
 public export
 nullable : Decoder a -> Decoder (Maybe a)
 nullable decoder =
@@ -223,19 +245,37 @@ nullable decoder =
     , map Just decoder 
     ]
 
+  
+
 ||| Helpful for dealing with optional fields. Here are a few slightly different
 ||| examples:
 ||| 
-|||    json = """{ "name": "tom", "age": 42 }"""
-|||    decodeString (maybe (field "age"    int  )) json == Right (Just 42)
-|||    decodeString (maybe (field "name"   int  )) json == Right Nothing
-|||    decodeString (maybe (field "height" float)) json == Right Nothing
-|||    decodeString (field "age"    (maybe int  )) json == Right (Just 42)
-|||    decodeString (field "name"   (maybe int  )) json == Right Nothing
-|||    decodeString (field "height" (maybe float)) json == Left err
+||| ```idris example
+||| > decodeString (maybe (field "name" string)) "{ \"name\": \"tom\", \"age\": 42 }"
+||| Right (Just "tom")
+||| ```
+||| ```idris example
+||| > decodeString (maybe (field "age" string)) "{ \"name\": \"tom\", \"age\": 42 }" 
+||| Right Nothing
+||| ```
+||| ```idris example
+|||  > decodeString (maybe (field "height" double)) "{ \"name\": \"tom\", \"age\": 42 }"
+|||  Right Nothing
+||| ```
+||| ```idris example
+||| > decodeString (field "name" (maybe string)) "{ \"name\": \"tom\", \"age\": 42 }"
+||| Right (Just "Tom")
+||| ```
+||| ```idris example
+||| > decodeString (field "age" (maybe string)) "{ \"name\": \"tom\", \"age\": 42 }"
+||| Right Nothing
+||| ```idris example
+||| > decodeString (field "height" (maybe double)) "{ \"name\": \"tom\", \"age\": 42 }"
+||| Left err
+||| ```
 |||
 ||| Notice the last example! It is saying we *must* have a field named `height` and
-||| the content *may* be a float. There is no `height` field, so the decoder fails.
+||| the content *may* be a double. There is no `height` field, so the decoder fails.
 |||
 ||| Point is, `maybe` will make exactly what it contains conditional. For optional
 ||| fields, this means you probably want it *outside* a use of `field` or `at`.
@@ -257,9 +297,9 @@ expectArray jsonValue   = Left (expecting "an ARRAY" jsonValue)
 ||| A variation of indexedFoldl that can fail and will short circuit to save resources if it does.
 ||| Failure is triggered by returning a (Left ..) from func.
 fallibleIndexedFoldl : (func: (a, Nat) -> b -> Either err b) -> 
-                     (init: b) ->
-                     (input : List a) ->
-                     Either err b
+                       (init: b) ->
+                       (input : List a) ->
+                       Either err b
 fallibleIndexedFoldl func init input = fallibleIndexedFoldlHelp input init
   where
     fallibleIndexedFoldlHelp : {default 0 idx: Nat} -> (input: List a) -> (acc: b) -> Either err b
@@ -280,8 +320,14 @@ fallibleIndexedMap func input = fallibleIndexedFoldl fallibleIndexedMapHelp [] i
          
 ||| Decode a JSON array into an Idris `List`.
 ||| 
-|||    decodeString (list int) "[1,2,3]"       == Right [1,2,3]
-|||    decodeString (list bool) "[true,false]" == Right [True,False]
+||| ```idris example
+||| > decodeString (list int) "[1,2,3]"
+||| Right [1,2,3]
+||| ```
+||| ```idris example
+||| > decodeString (list bool) "[true,false]"
+||| Right [True,False]
+||| ```
 public export
 list : Decoder a -> Decoder (List a)
 list (MkDecoder decodeElement) = MkDecoder decodeList
@@ -300,12 +346,22 @@ list (MkDecoder decodeElement) = MkDecoder decodeList
 
 ||| Decode a JSON array, requiring a particular index.
 |||
-|||    json = """[ "alice", "bob", "chuck" ]"""
-|||
-|||    decodeString (index 0 string) json  == Right "alice"
-|||    decodeString (index 1 string) json  == Right "bob"
-|||    decodeString (index 2 string) json  == Right "chuck"
-|||    decodeString (index 3 string) json  == Left err
+||| ```idris example
+||| > decodeString (index 0 string) "[ \"alice\", \"bob\", \"chuck\" ]"
+||| Right "alice"
+||| ```
+||| ```idris example
+||| > decodeString (index 1 string) "[ \"alice\", \"bob\", \"chuck\" ]"
+||| Right "bob"
+||| ```
+||| ```idris example
+||| > decodeString (index 2 string) "[ \"alice\", \"bob\", \"chuck\" ]"
+||| Right "chuck"
+||| ```
+||| ```idris example
+||| > decodeString (index 3 string) "[ \"alice\", \"bob\", \"chuck\" ]"
+||| Left err
+||| ```
 public export
 index : (idx: Nat) -> Decoder a -> Decoder a
 index idx (MkDecoder decode) = MkDecoder decodeIndex
@@ -327,10 +383,16 @@ index idx (MkDecoder decode) = MkDecoder decodeIndex
                   jsonValue
               )
 
-||| Decode a JSON array into a dependent pair of an idris "VECT" dependent on its length.
-||| 
-|||    decodeString (vect int) "[1,2,3]"       == Right (3 ** [1, 2, 3])
-|||    decodeString (vect bool) "[true,false]" == Right (2 ** [True,False])
+||| Decode a JSON array into a dependent pair of an idris "Vect" dependent on its length.
+|||
+||| ```idris example 
+||| > decodeString (vect int) "[1,2,3]"
+||| Right (3 ** [1, 2, 3])
+||| ```
+||| ```idris example
+||| > decodeString (vect bool) "[true,false]"
+||| Right (2 ** [True,False])
+||| ```
 public export
 vect : Decoder a -> Decoder (len ** Vect len a)
 vect (MkDecoder decodeElement) = MkDecoder decodeVect
@@ -349,9 +411,18 @@ vect (MkDecoder decodeElement) = MkDecoder decodeVect
 
 ||| Decode a JSON array into an Idris `Vect` with an exact length.
 ||| 
-|||    decodeString (vectExact 3 int)  "[1,2,3]"       == Right [1,2,3]
-|||    decodeString (vectExact 2 bool) "[true,false]"  == Right [True,False]
-|||    decodeString (vectExact 5 bool) "[true,false]"  == Left err
+||| ```idris example
+||| > decodeString (vectExact 3 int)  "[1,2,3]"
+||| Right [1,2,3]
+||| ```
+||| ```idris example
+||| > decodeString (vectExact 2 bool) "[true,false]"
+||| Right [True,False]
+||| ```
+||| ```idris example
+||| > decodeString (vectExact 5 bool) "[true,false]"
+||| Left err
+||| ```
 public export
 vectExact : (len: Nat) -> Decoder a -> Decoder (Vect len a)
 vectExact len decoder = 
@@ -367,10 +438,22 @@ vectExact len decoder =
 ||| Decode a JSON array into a dependent pair of an Idris `Vect` dependent on
 ||| the amount of elements it has additionally to the minimum amount.
 ||| 
-|||    decodeString (vectAtLeast 3 int)  "[1,2,3]"       == Right (0 ** [1,2,3])
-|||    decodeString (vectAtLeast 1 int)  "[1,2,3]"       == Right (2 ** [1,2,3])
-|||    decodeString (vectAtLeast 1 bool) "[true,false]"  == Right (1 ** [True,False])
-|||    decodeString (vectAtLeast 3 bool) "[true,false]"  == Left err
+||| ```idris example
+||| > decodeString (vectAtLeast 3 int) "[1,2,3]" 
+||| Right (0 ** [1,2,3])
+||| ```
+||| ```idris example
+||| > decodeString (vectAtLeast 1 int) "[1,2,3]"
+||| Right (2 ** [1,2,3])
+||| ```
+||| ```idris example
+||| > decodeString (vectAtLeast 1 bool) "[true,false]"
+||| Right (1 ** [True,False])
+||| ```
+||| ```idris example
+||| > decodeString (vectAtLeast 3 bool) "[true,false]"
+||| Left err
+||| ```
 public export
 vectAtLeast : (len: Nat) -> Decoder a -> Decoder (rest ** Vect (len + rest) a)
 vectAtLeast len decoder = 
@@ -402,8 +485,10 @@ expectObject jsonValue         = Left (expecting "an OBJECT" jsonValue)
 
 ||| Decode a JSON object into an Idris `List` of pairs.
 ||| 
-|||    decodeString (keyValuePairs int) "{ \"alice\": 42, \"bob\": 99 }"
-|||      == Right [("alice", 42), ("bob", 99)]
+||| ```idris example
+||| > decodeString (keyValuePairs int) "{ \"alice\": 42, \"bob\": 99 }"
+||| Right [("alice", 42), ("bob", 99)]
+||| ```
 public export
 keyValuePairs : Decoder a -> Decoder (List (String, a))
 keyValuePairs (MkDecoder decode) = MkDecoder decodeKeyValuePairs
@@ -426,11 +511,18 @@ keyValuePairs (MkDecoder decode) = MkDecoder decodeKeyValuePairs
 
 ||| Decode a JSON object, requiring a particular field.
 ||| 
-|||    decodeString (field "x" int) "{ \"x\": 3 }"            == Right 3
-|||    decodeString (field "x" int) "{ \"x\": 3, \"y\": 4 }"  == Right 3
-|||    decodeString (field "x" int) "{ \"x\": true }"         == Left err
-|||    decodeString (field "x" int) "{ \"y\": 4 }"            == Left err
-|||    decodeString (field "name" string) "{ \"name\": \"tom\" }" == Right "tom"
+||| ```idris example
+||| > decodeString (field "x" int) "{ \"x\": 3, \"y\": 4 }"
+||| Right 3
+||| ```
+||| ```idris example
+||| > decodeString (field "x" int) "{ \"x\": true }" 
+||| Left err
+||| ```
+||| ```idris example
+||| decodeString (field "x" int) "{ \"y\": 4 }" 
+||| Left err
+||| ```
 |||
 ||| The object *can* have other fields. Lots of them! The only thing this decoder
 ||| cares about is if `x` is present and that the value there is an `Int`.
@@ -457,10 +549,14 @@ field fieldName (MkDecoder decode) = MkDecoder decodeField
            
 ||| Decode a nested JSON object, requiring certain fields.
 |||
-|||    json = """{ "person": { "name": "tom", "age": 42 } }"""
-|||
-|||    decodeString (at ["person", "name"] string) json  == Right "tom"
-|||    decodeString (at ["person", "age" ] int   ) json  == Right 42
+||| ```idris example
+||| > decodeString (at ["person", "name"] string) "{ \"person\": { \"name\": \"tom\", \"age\": 42 } }"
+||| Right "tom"
+||| ```
+||| ```idris example
+||| > decodeString (at ["person", "age" ] int) "{ \"person\": { \"name\": \"tom\", \"age\": 42 } }"
+||| Right 42
+||| ```
 public export
 at : (path: List String) -> Decoder a -> Decoder a
 at path decoder =
@@ -471,7 +567,7 @@ public export
 atEmptyListSimplyReturnsDecoder : (decoder: Decoder a) -> at [] decoder = decoder
 atEmptyListSimplyReturnsDecoder decoder = Refl
 
-||| At can be seen as a bunch of nested calls to `field`.
+||| `at` can be seen as a bunch of nested calls to `field`.
 public export
 atShorthandForNestedField : {decoder: Decoder a} -> 
                             {fieldName: String} ->
