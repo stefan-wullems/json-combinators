@@ -131,6 +131,9 @@ oneOf decoders = MkDecoder (oneOfHelp decoders)
         Left error  => oneOfHelp {errors=error::errors} decoders jsonValue
     oneOfHelp {errors} [] jsonValue = Left (OneOf (reverse errors))
 
+oneOfSingleDecoder : (decoder: Decoder a) -> oneOf [decoder] = decoder
+oneOfSingleDecoder decoder = ?bla
+
 --------------------------------------------------------------------------------
 -- JSON primitives
 --------------------------------------------------------------------------------
