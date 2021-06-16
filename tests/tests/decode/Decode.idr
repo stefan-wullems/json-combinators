@@ -1,7 +1,9 @@
 module Decode
 
-import JSON.Decode
 import Data.Vect
+
+import JSON.Decode
+import JSON.Decode.Error
 
 main : IO ()
 main = 

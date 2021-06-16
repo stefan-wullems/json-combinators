@@ -4,4 +4,4 @@ depends = prelude, contrib
 
 sourcedir = "src"
 
-modules = JSON.Decode
+modules = JSON.Decode, JSON.Decode.Error
