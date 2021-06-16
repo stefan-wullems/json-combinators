@@ -3,10 +3,37 @@ module JSON.Decode
 import Data.List
 import Data.Vect
 import Data.Nat
+import Data.String
+import Data.String.Extra
 import Decidable.Equality
 import Language.JSON
 
 %default total
+
+||| A generalization of indexedFoldl that can fail and will short circuit to save resources if it does.
+||| Failure is triggered by returning a (Left ..) from func.
+fallibleIndexedFoldr : (func: b -> (a, Nat) -> Either err b) -> 
+                       (init: b) ->
+                       (input : List a) ->
+                       Either err b
+fallibleIndexedFoldr func init input = fallibleIndexedFoldrHelp init input
+  where
+    fallibleIndexedFoldrHelp : {default 0 idx: Nat} -> (init: b) -> (input: List a) -> Either err b
+    fallibleIndexedFoldrHelp {idx} init [] = Right init
+    fallibleIndexedFoldrHelp {idx} init (x :: xs) = 
+      do 
+        acc <- fallibleIndexedFoldrHelp {idx=idx+1} init xs
+        func acc (x, idx) 
+
+||| A generalization of indexedMap that can fail and will short circuit to save resources if it does.
+||| Failure is triggered by returning a (Left ..) from func.
+fallibleIndexedMap : (func: (a, Nat) -> Either err b) -> (input: List a) -> Either err (List b)
+fallibleIndexedMap func input = 
+  fallibleIndexedFoldr (\xs, element => map (::xs) (func element)) [] input
+
+indexedMap : {default 0 idx: Nat} -> (func : (a, Nat) -> b) -> (input: List a) -> List b
+indexedMap {idx} func [] = []
+indexedMap {idx} func (x::xs) = func (x, idx) :: indexedMap {idx=idx+1} func xs
 
 public export
 data Error 
@@ -14,7 +41,76 @@ data Error
   | Index Nat Error
   | OneOf (List Error)
   | Failure String JSON
-  | InvalidJSON String
+  | InvalidJSONString String
+
+indent : String -> String
+indent str = indentLines 2 str
+
+public export
+Show Error where
+  show err = assert_total showHelp err []
+    where
+      showHelp : Error -> List String -> String
+      showHelp (Field fieldName err) context =
+        let 
+          fieldAccess = 
+            if isSimple fieldName then
+              "." ++ fieldName
+            else
+              "[\"" ++ fieldName ++ "\"]"
+        in 
+          showHelp err (fieldAccess::context)
+        where
+          isSimple : String -> Bool
+          isSimple fieldName with (strM fieldName)
+            isSimple ""                   | StrNil = False
+            isSimple (prim__strCons char rest) | (StrCons char rest) = 
+              isAlpha char && all isAlphaNum (unpack rest)
+      showHelp (Index idx err) context = 
+        showHelp err (("[" ++ show idx ++ "]")::context)
+      showHelp (OneOf errors) context = 
+        case errors of
+          [] => 
+            "Ran into a JSON.Decode.oneOf with no possibilities" ++
+              case context of
+                [] =>
+                  "!"
+
+                context => 
+                  " at json" ++ concat (reverse context)
+
+          [err] =>
+            showHelp err context
+
+          errors =>
+            let
+              starter =
+                case context of
+                  [] =>
+                    "Json.Decode.oneOf"
+                  context =>
+                    "The Json.Decode.oneOf at json" ++ concat (reverse context)
+
+              introduction =
+                starter ++ " failed in the following " ++ show (length errors) ++ " ways:"
+            in 
+              join "\n\n" (introduction :: (indexedMap errorOneOf errors))
+            where
+              errorOneOf : (Error, Nat) -> String
+              errorOneOf (error, idx) =
+                "\n\n(" ++ show (idx + 1) ++ ") " ++ indent (show error)
+
+      showHelp (Failure msg jsonValue) context = 
+        let
+          introduction =
+            case context of
+              [] =>
+                "Problem with the given value:\n\n"
+              _ =>
+                "Problem with the value at json" ++ concat (reverse context) ++ ":\n\n    "
+        in
+          introduction ++ indent (show jsonValue) ++ "\n\n" ++ msg
+      showHelp (InvalidJSONString jsonString) context = "This is not valid JSON! " ++ jsonString
 
 --------------------------------------------------------------------------------
 -- JSON validation
@@ -95,7 +191,11 @@ decodeString (MkDecoder decode) jsonString =
       decode jsonValue
 
     Nothing =>
-      Left (InvalidJSON jsonString)
+      Left (InvalidJSONString jsonString)
+
+--------------------------------------------------------------------------------
+-- Misc
+--------------------------------------------------------------------------------
 
 ||| Ignore the JSON and make the decoder fail. This is handy when used with
 ||| `oneOf` or `>>=` where you want to give a custom error message in some
@@ -298,6 +398,7 @@ nullable decoder =
 |||
 ||| Point is, `maybe` will make exactly what it contains conditional. For optional
 ||| fields, this means you probably want it *outside* a use of `field` or `at`.
+public export
 maybe : Decoder a -> Decoder (Maybe a)
 maybe decoder =
   oneOf
@@ -308,27 +409,6 @@ maybe decoder =
 --------------------------------------------------------------------------------
 -- JSON arrays
 --------------------------------------------------------------------------------
-
-||| A variation of indexedFoldl that can fail and will short circuit to save resources if it does.
-||| Failure is triggered by returning a (Left ..) from func.
-fallibleIndexedFoldr : (func: b -> (a, Nat) -> Either err b) -> 
-                       (init: b) ->
-                       (input : List a) ->
-                       Either err b
-fallibleIndexedFoldr func init input = fallibleIndexedFoldrHelp init input
-  where
-    fallibleIndexedFoldrHelp : {default 0 idx: Nat} -> (init: b) -> (input: List a) -> Either err b
-    fallibleIndexedFoldrHelp {idx} init [] = Right init
-    fallibleIndexedFoldrHelp {idx} init (x :: xs) = 
-      do 
-        acc <- fallibleIndexedFoldrHelp {idx=idx+1} init xs
-        func acc (x, idx) 
-
-||| A variation of indexedMap that can fail and will short circuit to save resources if it does.
-||| Failure is triggered by returning a (Left ..) from func.
-fallibleIndexedMap : (func: (a, Nat) -> Either err b) -> (input: List a) -> Either err (List b)
-fallibleIndexedMap func input = 
-  fallibleIndexedFoldr (\xs, element => map (::xs) (func element)) [] input
          
 ||| Decode a JSON array into an Idris `List`.
 ||| 
@@ -440,7 +520,7 @@ vectExact len decoder =
         pure xs
 
       No contra => 
-        fail ("Expecting an ARRAY with exactly" ++ show len ++ "elements") 
+        fail ("Expecting an ARRAY with exactly " ++ show len ++ " elements") 
 
 ||| Decode a JSON array into a dependent pair of an Idris `Vect` dependent on
 ||| the amount of elements it has additionally to the minimum amount.
@@ -472,7 +552,7 @@ vectAtLeast len decoder =
         in pure (rest ** xs)
 
       No contra => 
-        fail ("Expecting an ARRAY with at least" ++ show len ++ "elements")
+        fail ("Expecting an ARRAY with at least " ++ show len ++ " elements")
   where
     diff : (x, y: Nat) -> (prf: LTE x y) -> (z ** x + z = y)
     diff 0 0 prf = (0 ** Refl)

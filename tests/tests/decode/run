@@ -1,0 +1,1 @@
+idris2 --no-banner --no-color --console-width 0 -p contrib -p jsoncombinators Decode.idr --exec main

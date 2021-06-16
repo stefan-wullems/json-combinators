@@ -1,0 +1,114 @@
+Right 4
+Left This is not valid JSON! 1 + 2
+Right [1, 2, 0, 4]
+Right True
+Left Problem with the given value:
+
+  42
+
+Expecting a BOOL
+Left Problem with the given value:
+
+  true
+
+Expecting a NUMBER
+Right 42
+Right 3.14
+Right 42
+Left Problem with the given value:
+
+  3.14
+
+Expecting the number to be an INTEGER
+Left Problem with the given value:
+
+  "hello"
+
+Expecting a NUMBER
+Left Problem with the given value:
+
+  true
+
+Expecting a STRING
+Left Problem with the given value:
+
+  42
+
+Expecting a STRING
+Right "hello"
+Right 42
+Left Problem with the given value:
+
+  42
+
+Expecting the literal `null`
+Right (Just 42)
+Right Nothing
+Left Json.Decode.oneOf failed in the following 2 ways:
+
+
+
+(1)   Problem with the given value:
+  
+    true
+  
+  Expecting the literal `null`
+
+
+
+(2)   Problem with the given value:
+  
+    true
+  
+  Expecting a NUMBER
+Right (Just "tom")
+Right Nothing
+Right Nothing
+Right (Just "tom")
+Right Nothing
+Left Problem with the given value:
+
+  {"name":"tom","age":42}
+
+Expecting an OBJECT with a field named `height`
+Right [1, 2, 3]
+Right [True, False]
+Right "alice"
+Right "bob"
+Right "chuck"
+Left Problem with the given value:
+
+  ["alice","bob","chuck"]
+
+Expecting a LONGER array. Need index 3 but only see 3 entries
+Right (3 ** [1, 2, 3])
+Right (2 ** [True, False])
+Right [1, 2, 3]
+Right [True, False]
+Left Problem with the given value:
+
+  [true,false]
+
+Expecting an ARRAY with exactly 5 elements
+Right (0 ** [1, 2, 3])
+Right (2 ** [1, 2, 3])
+Right (1 ** [True, False])
+Left Problem with the given value:
+
+  [true,false]
+
+Expecting an ARRAY with at least 3 elements
+Right [("alice", 42), ("bob", 99)]
+Right 3
+Left Problem with the value at json.x:
+
+      true
+
+Expecting a NUMBER
+Left Problem with the given value:
+
+  {"y":4}
+
+Expecting an OBJECT with a field named `x`
+Right "tom"
+Right 42

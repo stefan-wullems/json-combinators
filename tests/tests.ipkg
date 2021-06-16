@@ -1,0 +1,5 @@
+package runtests
+
+depends = contrib, test, jsoncombinators
+main = Main
+executable = runtests

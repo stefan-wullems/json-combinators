@@ -12,8 +12,10 @@ repl:
 testbin:
 	@${MAKE} -C tests testbin
 
-# usage: `make test only=messages001`
+install:
+	idris2 --install jsoncombinators.ipkg
+
 test-only:
 	${MAKE} -C tests only=$(only)
 
-test: build testbin test-only
+test: build install testbin test-only
