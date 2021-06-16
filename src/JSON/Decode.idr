@@ -16,7 +16,37 @@ data Error
   | Failure String JSON
   | InvalidJSON String
 
-expecting : String -> JSON -> Error
+--------------------------------------------------------------------------------
+-- JSON validation
+--------------------------------------------------------------------------------
+
+expectJSONNumber : JSON -> Either Error Double
+expectJSONNumber (JNumber value) = Right value
+expectJSONNumber jsonValue       = Left (Failure "Expecting a NUMBER" jsonValue)
+
+expectJSONBool : JSON -> Either Error Bool
+expectJSONBool (JBoolean value) = Right value
+expectJSONBool jsonValue        = Left (Failure "Expecting a BOOL" jsonValue)
+
+expectJSONString : JSON -> Either Error String
+expectJSONString (JString value) = Right value
+expectJSONString jsonValue       = Left (Failure "Expecting a STRING" jsonValue)
+
+expectJSONNull : JSON -> Either Error ()
+expectJSONNull JNull     = Right ()
+expectJSONNull jsonValue = Left (Failure "Expecting the literal `null`" jsonValue)
+
+expectJSONArray : JSON -> Either Error (List JSON)
+expectJSONArray (JArray xs) = Right xs
+expectJSONArray jsonValue   = Left (Failure "Expecting an ARRAY" jsonValue)
+
+expectJSONObject : JSON -> Either Error (List (String, JSON))
+expectJSONObject (JObject entries) = Right entries
+expectJSONObject jsonValue         = Left (Failure "Expecting an OBJECT" jsonValue)
+
+--------------------------------------------------------------------------------
+-- Decoder & interface implementations
+--------------------------------------------------------------------------------
 
 export
 data Decoder a = MkDecoder (JSON -> Either Error a)
@@ -41,8 +71,6 @@ Monad Decoder where
         decode jsonValue
     )
 
--- @TODO make sure each decoder enriches its errors with extra info if possible
-
 --------------------------------------------------------------------------------
 -- Running a decoder
 --------------------------------------------------------------------------------
@@ -59,6 +87,7 @@ Monad Decoder where
 ||| > decodeString int "1 + 2"
 ||| Left err
 ||| ```
+public export
 decodeString : Decoder a -> String -> Either Error a
 decodeString (MkDecoder decode) jsonString =
   case parse jsonString of
@@ -82,7 +111,6 @@ fail errorMsg = MkDecoder (\jsonValue => Left (Failure errorMsg jsonValue))
 ||| ```idris example
 ||| > :let badInt : Decoder Int
 ||| > :let badInt = oneOf [ int, null 0 ]
-|||
 ||| > decodeString (list badInt) "[1,2,null,4]"
 ||| Right [1,2,0,4]
 ||| ```
@@ -109,34 +137,6 @@ oneOf decoders = MkDecoder (oneOfHelp decoders)
 -- JSON primitives
 --------------------------------------------------------------------------------
 
-||| Decode a JSON number into an Idris `Int`.
-|||
-||| ``` idris example
-||| > decodeString int "42"                
-||| Right 42
-||| ```
-||| ```idris example
-||| > decodeString int "3.14"              
-||| Left err
-||| ```
-||| ```idris example
-||| > decodeString int "\"hello\""         
-||| Left err
-||| ```
-public export
-int : Decoder Int
-int = MkDecoder decodeInt
-  where 
-    decodeInt : JSON -> Either Error Int
-    decodeInt jsonValue@(JNumber value) =
-      -- If no information is lost during the round trip from double to int back to double,
-      -- then value must have been an integer.
-      if value == cast (the Int (cast value)) then 
-        Right (cast value)
-      else
-        Left (expecting "an INT" jsonValue)
-    decodeInt jsonValue = Left (expecting "an INT" jsonValue)
-
 ||| Decode a JSON boolean into an Idris `Bool`.
 |||
 ||| ```idris example
@@ -149,11 +149,7 @@ int = MkDecoder decodeInt
 ||| ```
 public export
 bool : Decoder Bool
-bool = MkDecoder decodeBool
-  where
-    decodeBool : JSON -> Either Error Bool
-    decodeBool (JBoolean value) = Right value
-    decodeBool jsonValue        = Left (expecting "a BOOL" jsonValue)
+bool = MkDecoder expectJSONBool
 
 ||| Decode a JSON number into an Idris `Double`.
 |||
@@ -171,11 +167,44 @@ bool = MkDecoder decodeBool
 ||| ```
 public export
 double : Decoder Double
-double = MkDecoder decodeDouble
+double = MkDecoder expectJSONNumber
+
+||| Decode a JSON number into an Idris `Int`.
+|||
+||| ``` idris example
+||| > decodeString int "42"                
+||| Right 42
+||| ```
+||| ```idris example
+||| > decodeString int "3.14"              
+||| Left err
+||| ```
+||| ```idris example
+||| > decodeString int "\"hello\""         
+||| Left err
+||| ```
+public export
+int : Decoder Int
+int = MkDecoder decodeInt
   where
-    decodeDouble : JSON -> Either Error Double
-    decodeDouble (JNumber value) = Right value
-    decodeDouble jsonValue       = Left (expecting "a DOUBLE" jsonValue)
+    isInteger : Double -> Bool
+    isInteger number =
+      -- If no information is lost during the round trip from double to int back to double,
+      -- then value must have been an integer.
+      number == cast (the Int (cast number))
+
+    decodeInt : JSON -> Either Error Int
+    decodeInt jsonValue =
+      do
+        number <- expectJSONNumber jsonValue
+        
+        case isInteger number of
+          True => 
+            Right (cast number)
+
+          False => 
+            Left (Failure "Expecting the number to be an INTEGER" jsonValue)
+          
 
 ||| Decode a JSON string into an Idris `String`.
 |||
@@ -193,11 +222,7 @@ double = MkDecoder decodeDouble
 ||| ```
 public export
 string : Decoder String
-string = MkDecoder decodeString
-  where
-    decodeString : JSON -> Either Error String
-    decodeString (JString value) = Right value
-    decodeString jsonValue       = Left (expecting "a STRING" jsonValue)
+string = MkDecoder expectJSONString
 
 ||| Decode a `null` value into some Idris value.
 |||
@@ -213,11 +238,7 @@ string = MkDecoder decodeString
 ||| So if you ever see a `null`, this will return whatever value you specified.
 public export
 null : a -> Decoder a
-null value = MkDecoder decodeNull
-  where
-    decodeNull : JSON -> Either Error a
-    decodeNull JNull     = Right value
-    decodeNull jsonValue = Left (expecting "null" jsonValue)
+null value = map (const value) (MkDecoder expectJSONNull)
 
 --------------------------------------------------------------------------------
 -- Dealing with optionality
@@ -244,8 +265,6 @@ nullable decoder =
     [ null Nothing
     , map Just decoder 
     ]
-
-  
 
 ||| Helpful for dealing with optional fields. Here are a few slightly different
 ||| examples:
@@ -290,33 +309,26 @@ maybe decoder =
 -- JSON arrays
 --------------------------------------------------------------------------------
 
-expectArray : JSON -> Either Error (List JSON)
-expectArray (JArray xs) = Right xs
-expectArray jsonValue   = Left (expecting "an ARRAY" jsonValue)
-
 ||| A variation of indexedFoldl that can fail and will short circuit to save resources if it does.
 ||| Failure is triggered by returning a (Left ..) from func.
-fallibleIndexedFoldl : (func: (a, Nat) -> b -> Either err b) -> 
+fallibleIndexedFoldr : (func: b -> (a, Nat) -> Either err b) -> 
                        (init: b) ->
                        (input : List a) ->
                        Either err b
-fallibleIndexedFoldl func init input = fallibleIndexedFoldlHelp input init
+fallibleIndexedFoldr func init input = fallibleIndexedFoldrHelp init input
   where
-    fallibleIndexedFoldlHelp : {default 0 idx: Nat} -> (input: List a) -> (acc: b) -> Either err b
-    fallibleIndexedFoldlHelp [] acc = Right acc
-    fallibleIndexedFoldlHelp {idx = idx} (x :: xs) acc = 
+    fallibleIndexedFoldrHelp : {default 0 idx: Nat} -> (init: b) -> (input: List a) -> Either err b
+    fallibleIndexedFoldrHelp {idx} init [] = Right init
+    fallibleIndexedFoldrHelp {idx} init (x :: xs) = 
       do 
-        acc' <- func (x, idx) acc
-        res <- fallibleIndexedFoldlHelp {idx=idx+1} xs acc'
-        pure res
+        acc <- fallibleIndexedFoldrHelp {idx=idx+1} init xs
+        func acc (x, idx) 
 
 ||| A variation of indexedMap that can fail and will short circuit to save resources if it does.
 ||| Failure is triggered by returning a (Left ..) from func.
 fallibleIndexedMap : (func: (a, Nat) -> Either err b) -> (input: List a) -> Either err (List b)
-fallibleIndexedMap func input = fallibleIndexedFoldl fallibleIndexedMapHelp [] input
-  where
-    fallibleIndexedMapHelp : (a, Nat) -> List b -> Either err (List b)
-    fallibleIndexedMapHelp element xs = map (snoc xs) (func element)
+fallibleIndexedMap func input = 
+  fallibleIndexedFoldr (\xs, element => map (::xs) (func element)) [] input
          
 ||| Decode a JSON array into an Idris `List`.
 ||| 
@@ -330,18 +342,15 @@ fallibleIndexedMap func input = fallibleIndexedFoldl fallibleIndexedMapHelp [] i
 ||| ```
 public export
 list : Decoder a -> Decoder (List a)
-list (MkDecoder decodeElement) = MkDecoder decodeList
+list (MkDecoder decode) = MkDecoder decodeList
   where
     decodeListHelp : (JSON, Nat) -> Either Error a
     decodeListHelp (jsonValue, idx) = 
-      bimap
-        {- Decoding failed    -} (\err => Index idx err)
-        {- Decoding succeeded -} id 
-        (decodeElement jsonValue)
+      mapFst (\err => Index idx err) (decode jsonValue)
     
     decodeList : JSON -> Either Error (List a)
     decodeList jsonValue = 
-      expectArray jsonValue 
+      expectJSONArray jsonValue 
         >>= fallibleIndexedMap decodeListHelp
 
 ||| Decode a JSON array, requiring a particular index.
@@ -368,20 +377,18 @@ index idx (MkDecoder decode) = MkDecoder decodeIndex
   where
     decodeIndex : JSON -> Either Error a
     decodeIndex jsonValue =
-      do xs <- expectArray jsonValue
-         case inBounds idx xs of
-            Yes prf => 
-              bimap
-               {- Decoding failed    -} (\err => Index idx err)
-               {- Decoding succeeded -} id
-               (decode (index idx xs))
+      do 
+        xs <- expectJSONArray jsonValue
+        case inBounds idx xs of
+          Yes prf => 
+            mapFst (\err => Index idx err) (decode (index idx xs))
 
-            No contra => 
-              Left (
-                expecting 
-                  ("a LONGER array. Need index " ++ show idx ++ " but only see " ++ show (length xs) ++ " entries") 
-                  jsonValue
-              )
+          No contra => 
+            Left (
+              Failure 
+                ("Expecting a LONGER array. Need index " ++ show idx ++ " but only see " ++ show (length xs) ++ " entries") 
+                jsonValue
+            )
 
 ||| Decode a JSON array into a dependent pair of an idris "Vect" dependent on its length.
 |||
@@ -395,24 +402,24 @@ index idx (MkDecoder decode) = MkDecoder decodeIndex
 ||| ```
 public export
 vect : Decoder a -> Decoder (len ** Vect len a)
-vect (MkDecoder decodeElement) = MkDecoder decodeVect
+vect (MkDecoder decode) = MkDecoder decodeVect
   where
-    decodeVectHelp : (JSON, Nat) -> (len ** Vect len a) -> Either Error (len' ** Vect len' a)
-    decodeVectHelp (jsonValue, idx) (len ** xs) =
+    decodeVectHelp :  (len ** Vect len a) -> (JSON, Nat) -> Either Error (len' ** Vect len' a)
+    decodeVectHelp (len ** xs) (jsonValue, idx) =
       bimap
-        {- Decoding failed    -} (\err => Index idx err)
-        {- Decoding succeeded -} (\x   => (S len ** x :: xs))
-        (decodeElement jsonValue)
+        (\err => Index idx err)
+        (\result => (S len ** result :: xs))
+        (decode jsonValue)
 
     decodeVect : JSON -> Either Error (len ** Vect len a)
     decodeVect jsonValue = 
-      expectArray jsonValue
-        >>= fallibleIndexedFoldl decodeVectHelp (0 ** [])
+      expectJSONArray jsonValue
+        >>= fallibleIndexedFoldr decodeVectHelp (0 ** [])
 
 ||| Decode a JSON array into an Idris `Vect` with an exact length.
 ||| 
 ||| ```idris example
-||| > decodeString (vectExact 3 int)  "[1,2,3]"
+||| > decodeString (vectExact 3 int) "[1,2,3]"
 ||| Right [1,2,3]
 ||| ```
 ||| ```idris example
@@ -479,10 +486,6 @@ vectAtLeast len decoder =
 -- JSON objects
 --------------------------------------------------------------------------------
 
-expectObject : JSON -> Either Error (List (String, JSON))
-expectObject (JObject entries) = Right entries
-expectObject jsonValue         = Left (expecting "an OBJECT" jsonValue)
-
 ||| Decode a JSON object into an Idris `List` of pairs.
 ||| 
 ||| ```idris example
@@ -497,7 +500,6 @@ keyValuePairs (MkDecoder decode) = MkDecoder decodeKeyValuePairs
     decodeKeyValuePairsHelp [] = Right []
     decodeKeyValuePairsHelp ((fieldName, jsonValue) :: entries) =
       case decode jsonValue of
-        -- Enrich error with information on which field we attempted to decode
         Left err => 
           Left (Field fieldName err)
 
@@ -506,7 +508,7 @@ keyValuePairs (MkDecoder decode) = MkDecoder decodeKeyValuePairs
 
     decodeKeyValuePairs : JSON -> Either Error (List (String, a))
     decodeKeyValuePairs jsonValue = 
-      expectObject jsonValue 
+      expectJSONObject jsonValue 
         >>= decodeKeyValuePairsHelp
 
 ||| Decode a JSON object, requiring a particular field.
@@ -532,20 +534,17 @@ field fieldName (MkDecoder decode) = MkDecoder decodeField
   where
     decodeFieldHelp : (String, JSON) -> Either Error a
     decodeFieldHelp (fieldName, jsonValue) =
-       bimap
-        {- Decoding failed    -} (\err => Field fieldName err)
-        {- Decoding succeeded -} id
-        (decode jsonValue)
+      mapFst (\err => Field fieldName err) (decode jsonValue)
 
     decodeField : JSON -> Either Error a
     decodeField jsonValue =
-      do entries <- expectObject jsonValue
+      do entries <- expectJSONObject jsonValue
          case find ((fieldName ==) . fst) entries of
             Just entry => 
               decodeFieldHelp entry
 
             Nothing => 
-              Left (expecting ("an OBJECT with a field named `" ++ fieldName ++ "`") jsonValue)
+              Left (Failure ("Expecting an OBJECT with a field named `" ++ fieldName ++ "`") jsonValue)
            
 ||| Decode a nested JSON object, requiring certain fields.
 |||
