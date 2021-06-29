@@ -121,18 +121,18 @@ fail errorMsg = MkDecoder (\jsonValue => Left (Failure errorMsg jsonValue))
 ||| then a few older ones that you still support. You could use `>>=` to be
 ||| even more particular if you wanted.
 public export
-oneOf : List (Decoder a) -> Decoder a
-oneOf decoders = MkDecoder (oneOfHelp decoders)
+oneOf : List (Lazy (Decoder a)) -> Decoder a
+oneOf decoders = MkDecoder (oneOfHelp [] decoders)
   where
-    oneOfHelp : {default [] errors : List Error} -> List (Decoder a) -> JSON -> Either Error a
-    oneOfHelp {errors} ((MkDecoder decode) :: decoders) jsonValue = 
+    oneOfHelp : (errors : List Error) -> List (Lazy (Decoder a)) -> JSON -> Either Error a
+    oneOfHelp errors ((MkDecoder decode) :: decoders) jsonValue = 
       case decode jsonValue of
-        Right value => Right value
-        Left error  => oneOfHelp {errors=error::errors} decoders jsonValue
-    oneOfHelp {errors} [] jsonValue = Left (OneOf (reverse errors))
+        Right value => 
+          Right value
 
-oneOfSingleDecoder : (decoder: Decoder a) -> oneOf [decoder] = decoder
-oneOfSingleDecoder decoder = ?bla
+        Left error => 
+          oneOfHelp (error::errors) decoders jsonValue
+    oneOfHelp errors [] jsonValue = Left (OneOf (reverse errors))
 
 --------------------------------------------------------------------------------
 -- JSON primitives
@@ -260,7 +260,7 @@ null value = map (const value) (MkDecoder expectJSONNull)
 ||| Left err
 ||| ```
 public export
-nullable : Decoder a -> Decoder (Maybe a)
+nullable : Lazy (Decoder a) -> Decoder (Maybe a)
 nullable decoder =
   oneOf
     [ null Nothing
@@ -300,7 +300,7 @@ nullable decoder =
 ||| Point is, `maybe` will make exactly what it contains conditional. For optional
 ||| fields, this means you probably want it *outside* a use of `field` or `at`.
 public export
-maybe : Decoder a -> Decoder (Maybe a)
+maybe : Lazy (Decoder a) -> Decoder (Maybe a)
 maybe decoder =
   oneOf
     [ map Just decoder
@@ -344,7 +344,7 @@ fallibleIndexedMap func input =
 ||| Right [True,False]
 ||| ```
 public export
-list : Decoder a -> Decoder (List a)
+list : Lazy (Decoder a) -> Decoder (List a)
 list (MkDecoder decode) = MkDecoder decodeList
   where
     decodeListHelp : (JSON, Nat) -> Either Error a
@@ -375,7 +375,7 @@ list (MkDecoder decode) = MkDecoder decodeList
 ||| Left err
 ||| ```
 public export
-index : (idx: Nat) -> Decoder a -> Decoder a
+index : (idx: Nat) -> Lazy (Decoder a) -> Decoder a
 index idx (MkDecoder decode) = MkDecoder decodeIndex
   where
     decodeIndex : JSON -> Either Error a
@@ -404,7 +404,7 @@ index idx (MkDecoder decode) = MkDecoder decodeIndex
 ||| Right (2 ** [True,False])
 ||| ```
 public export
-vect : Decoder a -> Decoder (len ** Vect len a)
+vect : Lazy (Decoder a) -> Decoder (len ** Vect len a)
 vect (MkDecoder decode) = MkDecoder decodeVect
   where
     decodeVectHelp :  (len ** Vect len a) -> (JSON, Nat) -> Either Error (len' ** Vect len' a)
@@ -434,7 +434,7 @@ vect (MkDecoder decode) = MkDecoder decodeVect
 ||| Left err
 ||| ```
 public export
-vectExact : (len: Nat) -> Decoder a -> Decoder (Vect len a)
+vectExact : (len: Nat) -> Lazy (Decoder a) -> Decoder (Vect len a)
 vectExact len decoder = 
   do 
     (len' ** xs) <- vect decoder
@@ -465,7 +465,7 @@ vectExact len decoder =
 ||| Left err
 ||| ```
 public export
-vectAtLeast : (len: Nat) -> Decoder a -> Decoder (rest ** Vect (len + rest) a)
+vectAtLeast : (len: Nat) -> Lazy (Decoder a) -> Decoder (rest ** Vect (len + rest) a)
 vectAtLeast len decoder = 
   do 
     (len' ** xs) <- vect decoder
@@ -496,7 +496,7 @@ vectAtLeast len decoder =
 ||| Right [("alice", 42), ("bob", 99)]
 ||| ```
 public export
-keyValuePairs : Decoder a -> Decoder (List (String, a))
+keyValuePairs : Lazy (Decoder a) -> Decoder (List (String, a))
 keyValuePairs (MkDecoder decode) = MkDecoder decodeKeyValuePairs
   where
     decodeKeyValuePairsHelp : List (String, JSON) -> Either Error (List (String, a))
@@ -532,7 +532,7 @@ keyValuePairs (MkDecoder decode) = MkDecoder decodeKeyValuePairs
 ||| The object *can* have other fields. Lots of them! The only thing this decoder
 ||| cares about is if `x` is present and that the value there is an `Int`.
 public export
-field : String -> Decoder a -> Decoder a
+field : String -> Lazy (Decoder a) -> Decoder a
 field fieldName (MkDecoder decode) = MkDecoder decodeField
   where
     decodeFieldHelp : (String, JSON) -> Either Error a
@@ -560,14 +560,14 @@ field fieldName (MkDecoder decode) = MkDecoder decodeField
 ||| Right 42
 ||| ```
 public export
-at : (path: List String) -> Decoder a -> Decoder a
+at : (path: List String) -> Lazy (Decoder a) -> Decoder a
 at path decoder =
-  foldr field decoder path
+  foldr (\prop, decoder => field prop decoder) decoder path
 
 ||| If no path is given the decoder is applied on the spot.
 public export
-atEmptyListSimplyReturnsDecoder : (decoder: Decoder a) -> at [] decoder = decoder
-atEmptyListSimplyReturnsDecoder decoder = Refl
+atEmptyListSimplyReturnsDecoder : {decoder: Decoder a} -> at [] decoder = decoder
+atEmptyListSimplyReturnsDecoder = Refl
 
 ||| `at` can be seen as a bunch of nested calls to `field`.
 public export
