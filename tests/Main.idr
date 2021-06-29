@@ -17,7 +17,9 @@ import Test.Golden
 
 allTests : TestPool
 allTests = MkTestPool "JSON combinator tests" []
-  [ "decode" ]
+  [ "decode"
+  , "encode"
+  ]
 
 main : IO ()
 main = runner

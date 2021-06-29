@@ -94,6 +94,7 @@ bool value = JBoolean value
 ||| > encode null
 ||| "null"
 ||| ```
+public export
 null : JSON
 null = JNull
 
